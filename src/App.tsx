@@ -25,14 +25,12 @@ export default function App() {
       {/* Compact PixelLab Top Toolbar or Dedicated Isolated Erase Header */}
       {isolatedErase ? <IsolatedEraseHeader /> : <TopToolbar />}
 
-      {/* Central Canvas + Slide-Over Layers Drawer */}
+      {/* Left Tools Dock + Central Canvas + Slide-Over Layers Drawer */}
       <main className="relative flex-1 flex overflow-hidden">
+        <BottomDock />
         <CanvasViewport />
         {!isolatedErase && <LayersDrawer />}
       </main>
-
-      {/* Expandable Tool Tray + Context Ribbon + 5-Tab Bottom Bar */}
-      <BottomDock />
 
       {/* Modal Dialogs */}
       <TextEditModal />

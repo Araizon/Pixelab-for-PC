@@ -124,10 +124,13 @@ export const ToolPanelTray: React.FC = () => {
   };
 
   return (
-    <div className="bg-[#1e222b] border-t border-white/10 px-4 py-3 z-20 max-h-64 overflow-y-auto pixellab-scroll">
-      <div className="max-w-5xl mx-auto">
+    <div
+      data-testid="left-tool-settings"
+      className="w-[296px] h-full bg-[#1e222b] border-r border-white/10 px-3.5 py-3 z-20 overflow-y-auto pixellab-scroll shrink-0"
+    >
+      <div className="space-y-3">
         {/* Header bar with title & Done button */}
-        <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-white/10">
+        <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-white/10">
           <span className="text-xs font-semibold text-slate-100 capitalize">
             {activeTool.replace(/([A-Z])/g, ' $1').trim()}
           </span>
@@ -2208,21 +2211,23 @@ const SliderField: React.FC<{
   unit: string;
   onChange: (val: number) => void;
 }> = ({ label, value, min, max, unit, onChange }) => (
-  <div className="flex items-center gap-2">
-    <span className="text-[11px] text-slate-300 whitespace-nowrap">{label}</span>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      value={value}
-      onPointerDown={() => useEditorStore.getState().pushHistory()}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="pl-slider w-28"
-    />
-    <span className="text-[11px] font-mono tabular-nums text-slate-200 w-11 text-right">
-      {value}
-      {unit}
-    </span>
+  <div className="flex items-center justify-between gap-2 w-full">
+    <span className="text-[11px] text-slate-300 whitespace-nowrap shrink-0">{label}</span>
+    <div className="flex items-center gap-2 shrink-0">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onPointerDown={() => useEditorStore.getState().pushHistory()}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="pl-slider w-28"
+      />
+      <span className="text-[11px] font-mono tabular-nums text-slate-200 w-10 text-right">
+        {value}
+        {unit}
+      </span>
+    </div>
   </div>
 );
 

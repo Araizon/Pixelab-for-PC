@@ -5,10 +5,8 @@ import {
   ArrowUpToLine,
   Blend,
   Box,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Circle,
   Copy,
   CopyPlus,
@@ -842,11 +840,13 @@ export const BottomDock: React.FC = () => {
     },
   ];
 
-  const ribbonScrollRef = useRef<HTMLDivElement>(null);
   const [expandAllTools, setExpandAllTools] = useState(false);
 
   return (
-    <div className="relative z-20 shrink-0 select-none">
+    <aside
+      data-testid="left-tool-dock"
+      className="relative z-20 flex h-full shrink-0 select-none"
+    >
       <input
         ref={imageInputRef}
         type="file"
@@ -859,141 +859,138 @@ export const BottomDock: React.FC = () => {
         }}
       />
 
-      {/* Expandable Tool Settings Tray */}
-      <ToolPanelTray />
-
       {isolatedErase ? (
-        <div
-          data-testid="isolated-erase-footer"
-          className="h-11 bg-[#161920] border-t border-white/10 px-4 flex items-center justify-between gap-3"
-        >
-          <span className="text-xs text-slate-400">
-            Transparent Background Only · Other layers are hidden while erasing
-          </span>
-          <button
-            onClick={exitErasePage}
-            className="h-7 px-3 rounded bg-[#2d8cff] hover:bg-[#2278e6] text-xs font-semibold text-white flex items-center gap-1.5 cursor-pointer shrink-0"
+        <div className="flex flex-col h-full shrink-0">
+          <div className="flex-1 min-h-0 flex">
+            <ToolPanelTray />
+          </div>
+          <div
+            data-testid="isolated-erase-footer"
+            className="w-[296px] bg-[#161920] border-t border-r border-white/10 px-3 py-2.5 flex items-center justify-between gap-2 shrink-0"
           >
-            <Check className="w-3.5 h-3.5" />
-            <span>Done &amp; Return</span>
-          </button>
+            <span className="text-[11px] text-slate-400 leading-tight">
+              Transparent BG · Other layers hidden
+            </span>
+            <button
+              onClick={exitErasePage}
+              className="h-7 px-2.5 rounded bg-[#2d8cff] hover:bg-[#2278e6] text-xs font-semibold text-white flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Done</span>
+            </button>
+          </div>
         </div>
       ) : (
         <>
-          {/* Context Tool Ribbon */}
-      <div className="bg-[#1b1f27] border-t border-white/10 px-2 py-1.5 flex items-center gap-1">
-        {!expandAllTools && (
-          <button
-            onClick={() => ribbonScrollRef.current?.scrollBy({ left: -240, behavior: 'smooth' })}
-            title="Scroll tools left"
-            className="h-12 w-7 rounded bg-[#232730] hover:bg-[#2c313d] border border-white/10 text-slate-300 flex items-center justify-center shrink-0 cursor-pointer"
+          {/* 5-Tab Primary Vertical Navigation Rail (Left Edge) */}
+          <nav
+            data-testid="left-category-rail"
+            className="w-[68px] h-full bg-[#161920] border-r border-white/10 py-2 px-1.5 flex flex-col items-center gap-1.5 shrink-0"
           >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
-
-        <div
-          ref={ribbonScrollRef}
-          onWheel={(e) => {
-            if (!expandAllTools && ribbonScrollRef.current && e.deltaY !== 0) {
-              ribbonScrollRef.current.scrollLeft += e.deltaY;
-            }
-          }}
-          className={`flex-1 flex items-center gap-1 ${
-            expandAllTools ? 'flex-wrap' : 'overflow-x-auto pixellab-scroll'
-          }`}
-        >
-          {/* Quick "Create New" action inside Object tab even when another object is selected */}
-          {activeTab === 'object' && selected && selected.type !== 'text' && (
-            <div className="flex items-center gap-1 pr-2 mr-1 border-r border-white/10 shrink-0">
-              <RibbonBtn
-                label="Stickers"
-                icon={<Smile className="w-4 h-4 text-amber-400" />}
-                active={activeTool === 'stickers'}
-                onClick={() => setActiveTool('stickers')}
-              />
-              <RibbonBtn
-                label="Import"
-                icon={<ImagePlus className="w-4 h-4 text-indigo-400" />}
-                onClick={() => imageInputRef.current?.click()}
-              />
-              <RibbonBtn
-                label="Draw"
-                icon={<Pencil className="w-4 h-4 text-rose-400" />}
-                onClick={() => startDrawMode()}
-              />
-              <RibbonBtn
-                label="Shapes"
-                icon={<Shapes className="w-4 h-4 text-[#2d8cff]" />}
-                active={activeTool === 'shapesPicker'}
-                onClick={() => setActiveTool('shapesPicker')}
-              />
-              <RibbonBtn
-                label="Bezier"
-                icon={<PenTool className="w-4 h-4 text-cyan-400" />}
-                onClick={() => startBezierMode(null)}
-              />
-            </div>
-          )}
-
-          {ribbonItems.map((item) => (
-            <RibbonBtn
-              key={item.id}
-              label={item.label}
-              icon={item.icon}
-              active={item.active}
-              onClick={item.onClick}
-            />
-          ))}
-        </div>
-
-        {!expandAllTools && (
-          <button
-            onClick={() => ribbonScrollRef.current?.scrollBy({ left: 240, behavior: 'smooth' })}
-            title="Scroll tools right"
-            className="h-12 w-7 rounded bg-[#232730] hover:bg-[#2c313d] border border-white/10 text-slate-300 flex items-center justify-center shrink-0 cursor-pointer"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-
-        <button
-          onClick={() => setExpandAllTools(!expandAllTools)}
-          title={expandAllTools ? 'Collapse tool bar' : 'Show all tools'}
-          className={`h-12 px-2 rounded border text-[10px] font-medium flex flex-col items-center justify-center gap-0.5 shrink-0 cursor-pointer ${
-            expandAllTools
-              ? 'bg-[#2d8cff]/20 border-[#2d8cff]/60 text-white'
-              : 'bg-[#232730] hover:bg-[#2c313d] border-white/10 text-slate-300'
-          }`}
-        >
-          {expandAllTools ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-          <span>All</span>
-        </button>
-      </div>
-
-          {/* 5-Tab Bottom Navigation Bar (PixelLab Authentic) */}
-          <nav className="h-12 bg-[#161920] border-t border-white/10 flex items-center justify-center gap-2 px-4">
             {bottomTabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`h-9 px-4 sm:px-6 rounded-md flex items-center gap-2 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  title={tab.label}
+                  className={`w-full py-2.5 px-1 rounded-md flex flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors cursor-pointer shrink-0 ${
                     isActive
                       ? 'bg-[#2d8cff]/15 text-[#60a5fa] border border-[#2d8cff]/40'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
                   }`}
                 >
                   {tab.icon}
-                  <span>{tab.label}</span>
+                  <span className="leading-none truncate max-w-full">{tab.label}</span>
                 </button>
               );
             })}
           </nav>
+
+          {/* Left Context Tools Column */}
+          <div
+            data-testid="left-context-tools"
+            className={`${
+              expandAllTools ? 'w-[152px]' : 'w-[84px]'
+            } h-full bg-[#1b1f27] border-r border-white/10 flex flex-col shrink-0 transition-[width] duration-150`}
+          >
+            <div
+              className={`flex-1 overflow-y-auto pixellab-scroll p-1.5 ${
+                expandAllTools ? 'grid grid-cols-2 gap-1 content-start' : 'flex flex-col gap-1'
+              }`}
+            >
+              {/* Quick "Create New" action inside Object tab even when another object is selected */}
+              {activeTab === 'object' && selected && selected.type !== 'text' && (
+                <>
+                  <RibbonBtn
+                    label="Stickers"
+                    icon={<Smile className="w-4 h-4 text-amber-400" />}
+                    active={activeTool === 'stickers'}
+                    onClick={() => setActiveTool('stickers')}
+                  />
+                  <RibbonBtn
+                    label="Import"
+                    icon={<ImagePlus className="w-4 h-4 text-indigo-400" />}
+                    onClick={() => imageInputRef.current?.click()}
+                  />
+                  <RibbonBtn
+                    label="Draw"
+                    icon={<Pencil className="w-4 h-4 text-rose-400" />}
+                    onClick={() => startDrawMode()}
+                  />
+                  <RibbonBtn
+                    label="Shapes"
+                    icon={<Shapes className="w-4 h-4 text-[#2d8cff]" />}
+                    active={activeTool === 'shapesPicker'}
+                    onClick={() => setActiveTool('shapesPicker')}
+                  />
+                  <RibbonBtn
+                    label="Bezier"
+                    icon={<PenTool className="w-4 h-4 text-cyan-400" />}
+                    onClick={() => startBezierMode(null)}
+                  />
+                  <div
+                    className={`${expandAllTools ? 'col-span-2' : 'w-full'} my-1 border-t border-white/10`}
+                  />
+                </>
+              )}
+
+              {ribbonItems.map((item) => (
+                <RibbonBtn
+                  key={item.id}
+                  label={item.label}
+                  icon={item.icon}
+                  active={item.active}
+                  onClick={item.onClick}
+                />
+              ))}
+            </div>
+
+            <div className="p-1.5 border-t border-white/10 shrink-0">
+              <button
+                onClick={() => setExpandAllTools(!expandAllTools)}
+                title={expandAllTools ? 'Switch to 1-column rail' : 'Expand to 2-column grid'}
+                className={`w-full h-8 rounded border text-[10px] font-medium flex items-center justify-center gap-1 cursor-pointer ${
+                  expandAllTools
+                    ? 'bg-[#2d8cff]/20 border-[#2d8cff]/60 text-white'
+                    : 'bg-[#232730] hover:bg-[#2c313d] border-white/10 text-slate-300'
+                }`}
+              >
+                {expandAllTools ? (
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                )}
+                <span>{expandAllTools ? '1-Col' : '2-Col'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Expandable Left Tool Settings Panel */}
+          <ToolPanelTray />
         </>
       )}
-    </div>
+    </aside>
   );
 };
 
@@ -1005,13 +1002,16 @@ const RibbonBtn: React.FC<{
 }> = ({ label, icon, active, onClick }) => (
   <button
     onClick={onClick}
-    className={`h-12 min-w-[58px] px-2 rounded-md flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer shrink-0 ${
+    title={label}
+    className={`w-full min-h-[50px] px-1 py-1.5 rounded-md flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer shrink-0 ${
       active
         ? 'bg-[#2d8cff]/20 text-white border border-[#2d8cff]/60'
         : 'text-slate-300 hover:bg-white/8 hover:text-white border border-transparent'
     }`}
   >
     {icon}
-    <span className="text-[10px] font-medium whitespace-nowrap leading-none">{label}</span>
+    <span className="text-[10px] font-medium leading-tight text-center break-words max-w-full">
+      {label}
+    </span>
   </button>
 );

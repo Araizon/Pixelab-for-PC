@@ -26,6 +26,103 @@ export function quantizeRenderScale(rawScale: number, logicalW: number, logicalH
   return Math.max(1, Number(Math.min(stepped, maxSafe).toFixed(2)));
 }
 
+export function quantizeMipScale(rawScale: number): number {
+  if (rawScale >= 0.85) return 1;
+  if (rawScale >= 0.62) return 0.75;
+  if (rawScale >= 0.42) return 0.5;
+  if (rawScale >= 0.28) return 0.35;
+  if (rawScale >= 0.18) return 0.25;
+  return 0.15;
+}
+
+export function quantizeDisplayScale(rawScale: number, logicalW: number, logicalH: number): number {
+  if (rawScale < 0.85) return quantizeMipScale(rawScale);
+  return quantizeRenderScale(rawScale, logicalW, logicalH);
+}
+
+export function drawImageSmooth(
+  ctx: CanvasRenderingContext2D,
+  source: HTMLImageElement | HTMLCanvasElement,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  ctxScale = 1
+) {
+  const sw = source instanceof HTMLImageElement ? source.naturalWidth : source.width;
+  const sh = source instanceof HTMLImageElement ? source.naturalHeight : source.height;
+  const targetPxW = Math.max(1, dw * ctxScale);
+  const targetPxH = Math.max(1, dh * ctxScale);
+  if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+
+  if (sw > targetPxW * 1.9 || sh > targetPxH * 1.9) {
+    let cur: HTMLCanvasElement | HTMLImageElement = source;
+    let cw = sw;
+    let ch = sh;
+    let guard = 0;
+    while ((cw * 0.5 > targetPxW * 1.15 || ch * 0.5 > targetPxH * 1.15) && guard < 8) {
+      guard++;
+      const nw = Math.max(Math.round(targetPxW), Math.floor(cw * 0.5));
+      const nh = Math.max(Math.round(targetPxH), Math.floor(ch * 0.5));
+      if (nw >= cw && nh >= ch) break;
+      const step = document.createElement('canvas');
+      step.width = nw;
+      step.height = nh;
+      const sctx = step.getContext('2d')!;
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(cur, 0, 0, nw, nh);
+      cur = step;
+      cw = nw;
+      ch = nh;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(cur, dx, dy, dw, dh);
+    return;
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, dx, dy, dw, dh);
+}
+
+function downsampleCanvasProgressive(
+  srcCanvas: HTMLCanvasElement,
+  targetW: number,
+  targetH: number
+): HTMLCanvasElement {
+  const tw = Math.max(2, Math.round(targetW));
+  const th = Math.max(2, Math.round(targetH));
+  if (srcCanvas.width <= tw && srcCanvas.height <= th) return srcCanvas;
+
+  let cur = srcCanvas;
+  let guard = 0;
+  while ((cur.width * 0.5 > tw * 1.15 || cur.height * 0.5 > th * 1.15) && guard < 6) {
+    guard++;
+    const nw = Math.max(tw, Math.floor(cur.width * 0.5));
+    const nh = Math.max(th, Math.floor(cur.height * 0.5));
+    if (nw >= cur.width && nh >= cur.height) break;
+    const step = document.createElement('canvas');
+    step.width = nw;
+    step.height = nh;
+    const sctx = step.getContext('2d')!;
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(cur, 0, 0, nw, nh);
+    cur = step;
+  }
+
+  const out = document.createElement('canvas');
+  out.width = tw;
+  out.height = th;
+  const octx = out.getContext('2d')!;
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = 'high';
+  octx.drawImage(cur, 0, 0, tw, th);
+  return out;
+}
+
 let sharedMeasureCanvas: HTMLCanvasElement | null = null;
 function getMeasureCtx(): CanvasRenderingContext2D {
   if (!sharedMeasureCanvas) {
@@ -636,7 +733,7 @@ function renderCoreObjectCanvas(
     ctx.scale(renderScale, renderScale);
     const img = getCachedImage(layer.src, onAssetLoad);
     if (img) {
-      ctx.drawImage(img, 0, 0, w, h);
+      drawImageSmooth(ctx, img, 0, 0, w, h, renderScale);
       if (layer.tintEnabled && layer.tintColor) {
         ctx.save();
         ctx.globalCompositeOperation = 'source-atop';
@@ -680,7 +777,7 @@ function renderCoreObjectCanvas(
       const src = layer.kind === 'svg' ? svgToDataUrl(layer.content) : layer.content;
       const img = getCachedImage(src, onAssetLoad);
       if (img) {
-        ctx.drawImage(img, 0, 0, w, h);
+        drawImageSmooth(ctx, img, 0, 0, w, h, renderScale);
         if (layer.tintColor) {
           ctx.save();
           ctx.globalCompositeOperation = 'source-atop';
@@ -1352,9 +1449,15 @@ export function renderFullLayerToCanvas(
   desiredScale = 1
 ): RenderedLayerResult {
   const coreBox = getLayerCoreBox(layer);
-  const renderScale = quantizeRenderScale(desiredScale, coreBox.w, coreBox.h);
+  const mipScale = quantizeMipScale(desiredScale);
+  const renderScale =
+    mipScale < 1
+      ? layer.type === 'image'
+        ? 1
+        : quantizeRenderScale(1.5, coreBox.w, coreBox.h)
+      : quantizeRenderScale(desiredScale, coreBox.w, coreBox.h);
   const baseKey = getLayerVisualCacheKey(layer);
-  const cacheKey = `${baseKey}__rs${renderScale}`;
+  const cacheKey = `${baseKey}__rs${renderScale}_m${mipScale}`;
   const cached = layerRenderCache.get(cacheKey);
   if (cached) {
     // Refresh LRU order
@@ -1508,15 +1611,24 @@ export function renderFullLayerToCanvas(
   fctx.drawImage(processed, drawX, drawY, procLogicalW, procLogicalH);
   fctx.restore();
 
+  const outputCanvas =
+    mipScale < 1
+      ? downsampleCanvasProgressive(
+          finalCanvas,
+          Math.max(4, Math.round(finalW * mipScale)),
+          Math.max(4, Math.round(finalH * mipScale))
+        )
+      : finalCanvas;
+
   const result: RenderedLayerResult = {
-    canvas: finalCanvas,
+    canvas: outputCanvas,
     coreWidth: w,
     coreHeight: h,
     logicalWidth: finalW,
     logicalHeight: finalH,
     offsetX: drawX + warpPadX,
     offsetY: drawY + warpPadY,
-    renderScale,
+    renderScale: mipScale < 1 ? mipScale : renderScale,
   };
 
   if (layerRenderCache.size >= MAX_LAYER_CACHE) {

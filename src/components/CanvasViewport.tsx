@@ -25,11 +25,12 @@ import {
 } from '../utils/clipboardDrop';
 import {
   createGradient,
+  drawImageSmooth,
   getCachedImage,
   getLayerCoreBox,
   getLayerVisualCacheKey,
   hexToRgba,
-  quantizeRenderScale,
+  quantizeDisplayScale,
   renderFullLayerToCanvas,
 } from '../utils/canvasEffects';
 
@@ -65,16 +66,16 @@ const RenderedLayerNode: React.FC<LayerNodeProps> = React.memo(
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [visualKey]
     );
-    const renderScale = quantizeRenderScale(
+    const displayScale = quantizeDisplayScale(
       viewportScale * Math.max(Math.abs(layer.scaleX), Math.abs(layer.scaleY)),
       coreBox.w,
       coreBox.h
     );
 
     const rendered = useMemo(() => {
-      return renderFullLayerToCanvas(layer, () => setAssetTick((t) => t + 1), renderScale);
+      return renderFullLayerToCanvas(layer, () => setAssetTick((t) => t + 1), displayScale);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [visualKey, renderScale, assetTick]);
+    }, [visualKey, displayScale, assetTick]);
 
     useEffect(() => {
       registerRef(layer.id, nodeRef.current);
@@ -545,7 +546,7 @@ export const CanvasViewport: React.FC = () => {
       const img = getCachedImage(bg.imageUrl, () => setBgTick((t) => t + 1));
       if (img) {
         if (bg.imageFit === 'stretch') {
-          ctx.drawImage(img, 0, 0, doc.width, doc.height);
+          drawImageSmooth(ctx, img, 0, 0, doc.width, doc.height, 1);
         } else {
           const scale =
             bg.imageFit === 'cover'
@@ -553,7 +554,7 @@ export const CanvasViewport: React.FC = () => {
               : Math.min(doc.width / img.naturalWidth, doc.height / img.naturalHeight);
           const dw = img.naturalWidth * scale;
           const dh = img.naturalHeight * scale;
-          ctx.drawImage(img, (doc.width - dw) / 2, (doc.height - dh) / 2, dw, dh);
+          drawImageSmooth(ctx, img, (doc.width - dw) / 2, (doc.height - dh) / 2, dw, dh, 1);
         }
       } else {
         ctx.fillStyle = '#1e293b';
@@ -678,8 +679,8 @@ export const CanvasViewport: React.FC = () => {
       for (const layer of doc.layers) {
         if (!layer.visible) continue;
         const coreBox = getLayerCoreBox(layer);
-        const layerScale = quantizeRenderScale(
-          Math.max(1, pixelRatio * Math.max(Math.abs(layer.scaleX), Math.abs(layer.scaleY))),
+        const layerScale = quantizeDisplayScale(
+          pixelRatio * Math.max(Math.abs(layer.scaleX), Math.abs(layer.scaleY)),
           coreBox.w,
           coreBox.h
         );
@@ -1595,10 +1596,23 @@ export const CanvasViewport: React.FC = () => {
               borderStrokeWidth={1.5}
               anchorFill="#ffffff"
               anchorStroke="#2d8cff"
-              anchorSize={9}
-              anchorCornerRadius={2}
+              anchorSize={10}
+              anchorCornerRadius={5}
+              enabledAnchors={[
+                'top-left',
+                'top-center',
+                'top-right',
+                'middle-right',
+                'bottom-right',
+                'bottom-center',
+                'bottom-left',
+                'middle-left',
+              ]}
               padding={4}
-              keepRatio={false}
+              keepRatio={true}
+              boundBoxFunc={(oldBox, newBox) =>
+                Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8 ? oldBox : newBox
+              }
             />
           </Layer>
         </Stage>
