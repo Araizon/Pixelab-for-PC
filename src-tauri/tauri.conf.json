@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PixelLab Desktop",
+  "version": "1.0.0",
+  "identifier": "com.pixellab.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "PixelLab Desktop",
+        "width": 1366,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "fileAssociations": [
+      {
+        "ext": ["pfx"],
+        "name": "PixelLab Project",
+        "description": "PixelLab Desktop Editable Project",
+        "mimeType": "application/x-pixellab-pfx"
+      }
+    ]
+  }
+}
