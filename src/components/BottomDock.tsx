@@ -46,9 +46,10 @@ import {
   Maximize2,
   Contrast,
   GripHorizontal,
+  Check,
 } from 'lucide-react';
 import { PROJECT_TEMPLATES } from '../data/presets';
-import { useEditorStore } from '../store/useEditorStore';
+import { isIsolatedEraseActive, useEditorStore } from '../store/useEditorStore';
 import { BottomTab } from '../types/editor';
 import { ToolPanelTray } from './ToolPanelTray';
 
@@ -70,6 +71,7 @@ export const BottomDock: React.FC = () => {
     activeTool,
     setActiveTab,
     setActiveTool,
+    exitErasePage,
     setInteractionMode,
     openModal,
     addTextLayer,
@@ -89,6 +91,7 @@ export const BottomDock: React.FC = () => {
   } = useEditorStore();
 
   const selected = doc.layers.find((l) => l.id === selectedIds[0]) ?? null;
+  const isolatedErase = isIsolatedEraseActive(activeTool, selectedIds, doc.layers);
 
   const handleImportFiles = (files: FileList | null) => {
     if (!files || !files.length) return;
@@ -543,11 +546,21 @@ export const BottomDock: React.FC = () => {
         });
       }
 
+      if (selected.type === 'image' || selected.type === 'sticker' || selected.type === 'drawing') {
+        items.push({
+          id: 'pixelEraser',
+          label: 'Eraser',
+          icon: <Eraser className="w-4 h-4" />,
+          active: activeTool === 'pixelEraser' || (selected.eraserStrokes?.length ?? 0) > 0,
+          onClick: () => setActiveTool('pixelEraser'),
+        });
+      }
+
       if (selected.type === 'image' || selected.type === 'sticker') {
         items.push({
           id: 'eraseColor',
           label: 'Erase Color',
-          icon: <Eraser className="w-4 h-4" />,
+          icon: <Wand2 className="w-4 h-4" />,
           active: activeTool === 'eraseColor' || Boolean(selected.eraseColor?.enabled),
           onClick: () => setActiveTool('eraseColor'),
         });
@@ -849,7 +862,25 @@ export const BottomDock: React.FC = () => {
       {/* Expandable Tool Settings Tray */}
       <ToolPanelTray />
 
-      {/* Context Tool Ribbon */}
+      {isolatedErase ? (
+        <div
+          data-testid="isolated-erase-footer"
+          className="h-11 bg-[#161920] border-t border-white/10 px-4 flex items-center justify-between gap-3"
+        >
+          <span className="text-xs text-slate-400">
+            Transparent Background Only · Other layers are hidden while erasing
+          </span>
+          <button
+            onClick={exitErasePage}
+            className="h-7 px-3 rounded bg-[#2d8cff] hover:bg-[#2278e6] text-xs font-semibold text-white flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>Done &amp; Return</span>
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Context Tool Ribbon */}
       <div className="bg-[#1b1f27] border-t border-white/10 px-2 py-1.5 flex items-center gap-1">
         {!expandAllTools && (
           <button
@@ -940,26 +971,28 @@ export const BottomDock: React.FC = () => {
         </button>
       </div>
 
-      {/* 5-Tab Bottom Navigation Bar (PixelLab Authentic) */}
-      <nav className="h-12 bg-[#161920] border-t border-white/10 flex items-center justify-center gap-2 px-4">
-        {bottomTabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`h-9 px-4 sm:px-6 rounded-md flex items-center gap-2 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                isActive
-                  ? 'bg-[#2d8cff]/15 text-[#60a5fa] border border-[#2d8cff]/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+          {/* 5-Tab Bottom Navigation Bar (PixelLab Authentic) */}
+          <nav className="h-12 bg-[#161920] border-t border-white/10 flex items-center justify-center gap-2 px-4">
+            {bottomTabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`h-9 px-4 sm:px-6 rounded-md flex items-center gap-2 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? 'bg-[#2d8cff]/15 text-[#60a5fa] border border-[#2d8cff]/40'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </>
+      )}
     </div>
   );
 };

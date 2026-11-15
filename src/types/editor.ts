@@ -8,7 +8,8 @@ export type EditorInteractionMode =
   | 'bezier'
   | 'eyedropper'
   | 'perspective'
-  | 'mask';
+  | 'mask'
+  | 'erase';
 
 export interface GradientStop {
   offset: number; // 0 to 1
@@ -77,8 +78,17 @@ export interface MaskConfig {
 export interface EraseColorConfig {
   enabled: boolean;
   color: string;
+  extraColors?: string[];
   tolerance: number; // 0 to 100
   smooth: number; // 0 to 30
+}
+
+export interface EraserStroke {
+  points: number[]; // normalized [x0, y0, x1, y1, ...] in 0..1 relative to core box
+  size: number; // brush diameter in core layer pixels
+  softness: number; // 0 to 100 (%) edge feather
+  opacity: number; // 0.1 to 1
+  mode: 'erase' | 'restore';
 }
 
 export interface ObjectColorFilterConfig {
@@ -161,6 +171,7 @@ export interface BaseLayer {
   rotate3D: Rotate3DConfig;
   shadow3D: Shadow3DConfig;
   eraseColor?: EraseColorConfig;
+  eraserStrokes?: EraserStroke[];
   colorFilters?: ObjectColorFilterConfig;
 }
 

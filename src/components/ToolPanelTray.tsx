@@ -10,9 +10,13 @@ import {
   ArrowUp,
   Bold,
   Check,
+  Eraser,
   FlipHorizontal,
   FlipVertical,
   Italic,
+  Paintbrush,
+  Pipette,
+  Plus,
   Redo2,
   RotateCcw,
   Trash2,
@@ -59,6 +63,7 @@ export const ToolPanelTray: React.FC = () => {
     document: doc,
     selectedIds,
     activeTool,
+    interactionMode,
     setActiveTool,
     setInteractionMode,
     updateLayer,
@@ -78,6 +83,12 @@ export const ToolPanelTray: React.FC = () => {
     redoDrawStroke,
     commitDrawSession,
     cancelDrawSession,
+    eraserSession,
+    eraserUndoneMap,
+    updateEraserSession,
+    undoEraserStroke,
+    redoEraserStroke,
+    clearEraserStrokes,
     bezierSession,
     updateBezierSession,
     commitBezierSession,
@@ -1110,46 +1121,267 @@ export const ToolPanelTray: React.FC = () => {
           </div>
         )}
 
+        {/* --- PIXEL ERASER (Brush) --- */}
+        {activeTool === 'pixelEraser' && selected && (() => {
+          const strokeCount = selected.eraserStrokes?.length ?? 0;
+          const undoneCount = (eraserUndoneMap[selected.id] ?? []).length;
+          const previewSize = Math.max(8, Math.min(34, Math.round(eraserSession.brushSize * 0.25)));
+          return (
+            <div className="space-y-3" data-testid="pixel-eraser-panel">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 bg-[#14171d] p-0.5 rounded border border-white/10">
+                    <button
+                      onClick={() => updateEraserSession({ mode: 'erase' })}
+                      className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 cursor-pointer ${
+                        eraserSession.mode === 'erase'
+                          ? 'bg-rose-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Eraser className="w-3.5 h-3.5" />
+                      <span>Erase Pixels</span>
+                    </button>
+                    <button
+                      onClick={() => updateEraserSession({ mode: 'restore' })}
+                      className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 cursor-pointer ${
+                        eraserSession.mode === 'restore'
+                          ? 'bg-emerald-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Paintbrush className="w-3.5 h-3.5" />
+                      <span>Restore Pixels</span>
+                    </button>
+                  </div>
+
+                  {/* Quick brush size presets */}
+                  <div className="flex items-center gap-1">
+                    {[10, 24, 48, 80, 120].map((presetSize) => (
+                      <button
+                        key={presetSize}
+                        onClick={() => updateEraserSession({ brushSize: presetSize })}
+                        className={`h-7 px-2 rounded border text-[11px] font-mono tabular-nums cursor-pointer ${
+                          eraserSession.brushSize === presetSize
+                            ? 'bg-[#2d8cff] border-[#2d8cff] text-white'
+                            : 'bg-[#262a34] border-white/10 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {presetSize}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stroke Undo / Redo / Reset */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => undoEraserStroke(selected.id)}
+                    disabled={strokeCount === 0}
+                    title="Undo Eraser Stroke"
+                    className="h-7 px-2.5 rounded bg-[#262a34] hover:bg-[#303542] border border-white/10 text-xs text-slate-200 disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 cursor-pointer"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Undo</span>
+                  </button>
+                  <button
+                    onClick={() => redoEraserStroke(selected.id)}
+                    disabled={undoneCount === 0}
+                    title="Redo Eraser Stroke"
+                    className="h-7 px-2.5 rounded bg-[#262a34] hover:bg-[#303542] border border-white/10 text-xs text-slate-200 disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 cursor-pointer"
+                  >
+                    <Redo2 className="w-3.5 h-3.5" />
+                    <span>Redo</span>
+                  </button>
+                  <button
+                    onClick={() => clearEraserStrokes(selected.id)}
+                    disabled={strokeCount === 0}
+                    title="Restore Original Image"
+                    className="h-7 px-2.5 rounded bg-[#262a34] hover:bg-[#303542] border border-white/10 text-xs text-slate-200 disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset All</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-9 h-9 rounded-md bg-[#14171d] border border-white/10 flex items-center justify-center shrink-0"
+                    title={`Brush Size: ${eraserSession.brushSize}px`}
+                  >
+                    <div
+                      style={{
+                        width: previewSize,
+                        height: previewSize,
+                        filter:
+                          eraserSession.softness > 0
+                            ? `blur(${Math.max(0.5, (eraserSession.softness / 100) * 4).toFixed(1)}px)`
+                            : undefined,
+                      }}
+                      className={`rounded-full border ${
+                        eraserSession.mode === 'restore'
+                          ? 'bg-emerald-400/40 border-emerald-400'
+                          : 'bg-rose-400/35 border-rose-400'
+                      }`}
+                    />
+                  </div>
+                  <SliderField
+                    label="Eraser Size"
+                    value={eraserSession.brushSize}
+                    min={4}
+                    max={160}
+                    unit="px"
+                    onChange={(brushSize) => updateEraserSession({ brushSize })}
+                  />
+                </div>
+                <SliderField
+                  label="Softness"
+                  value={eraserSession.softness}
+                  min={0}
+                  max={100}
+                  unit="%"
+                  onChange={(softness) => updateEraserSession({ softness })}
+                />
+                <SliderField
+                  label="Strength"
+                  value={Math.round(eraserSession.opacity * 100)}
+                  min={10}
+                  max={100}
+                  unit="%"
+                  onChange={(v) => updateEraserSession({ opacity: v / 100 })}
+                />
+              </div>
+            </div>
+          );
+        })()}
+
         {/* --- ERASE COLOR (Chroma Key) --- */}
         {activeTool === 'eraseColor' && selected && (selected.type === 'image' || selected.type === 'sticker') && (() => {
           const ec = selected.eraseColor ?? { enabled: false, color: '#ffffff', tolerance: 24, smooth: 8 };
+          const extras = ec.extraColors ?? [];
+          const triggerPickPrimary = () => {
+            setInteractionMode('eyedropper', (picked) => {
+              const latest = useEditorStore
+                .getState()
+                .document.layers.find((l) => l.id === selected.id);
+              const curEc = latest?.eraseColor ?? ec;
+              updateLayer(
+                selected.id,
+                { eraseColor: { ...curEc, enabled: true, color: picked } },
+                true
+              );
+            });
+          };
+          const triggerPickExtra = () => {
+            setInteractionMode('eyedropper', (picked) => {
+              const latest = useEditorStore
+                .getState()
+                .document.layers.find((l) => l.id === selected.id);
+              const curEc = latest?.eraseColor ?? ec;
+              const curExtras = curEc.extraColors ?? [];
+              const nextExtras = curExtras.includes(picked) ? curExtras : [...curExtras, picked];
+              updateLayer(
+                selected.id,
+                { eraseColor: { ...curEc, enabled: true, extraColors: nextExtras } },
+                true
+              );
+            });
+          };
+
           return (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="space-y-3" data-testid="erase-color-panel">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <ToggleRow
-                  label="Enable Erase Color (Remove Background)"
+                  label="Enable Erase Color"
                   checked={ec.enabled}
                   onChange={(enabled) =>
                     updateLayer(selected.id, { eraseColor: { ...ec, enabled } }, true)
                   }
                 />
-                {ec.enabled && (
-                  <div className="flex items-center gap-1.5">
-                    <SmallBtn
-                      label="White"
-                      onClick={() =>
-                        updateLayer(selected.id, { eraseColor: { ...ec, color: '#ffffff' } }, true)
-                      }
-                    />
-                    <SmallBtn
-                      label="Green"
-                      onClick={() =>
-                        updateLayer(selected.id, { eraseColor: { ...ec, color: '#00ff00' } }, true)
-                      }
-                    />
-                    <SmallBtn
-                      label="Black"
-                      onClick={() =>
-                        updateLayer(selected.id, { eraseColor: { ...ec, color: '#000000' } }, true)
-                      }
-                    />
-                  </div>
-                )}
+                <button
+                  onClick={triggerPickPrimary}
+                  data-testid="erase-color-eyedropper-btn"
+                  className={`h-7 px-2.5 rounded border text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    interactionMode === 'eyedropper'
+                      ? 'bg-[#2d8cff] border-[#2d8cff] text-white'
+                      : 'bg-[#262a34] hover:bg-[#303542] border-white/15 text-slate-100'
+                  }`}
+                >
+                  <Pipette className="w-3.5 h-3.5 text-sky-300" />
+                  <span>{interactionMode === 'eyedropper' ? 'Click Image to Pick...' : 'Pick Color to Erase'}</span>
+                </button>
+                <button
+                  onClick={triggerPickExtra}
+                  title="Pick an additional color shade to erase"
+                  className="h-7 px-2.5 rounded bg-[#262a34] hover:bg-[#303542] border border-white/10 text-xs text-slate-200 flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <span>Add Color</span>
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <SmallBtn
+                    label="White"
+                    onClick={() =>
+                      updateLayer(selected.id, { eraseColor: { ...ec, enabled: true, color: '#ffffff' } }, true)
+                    }
+                  />
+                  <SmallBtn
+                    label="Green"
+                    onClick={() =>
+                      updateLayer(selected.id, { eraseColor: { ...ec, enabled: true, color: '#00ff00' } }, true)
+                    }
+                  />
+                  <SmallBtn
+                    label="Black"
+                    onClick={() =>
+                      updateLayer(selected.id, { eraseColor: { ...ec, enabled: true, color: '#000000' } }, true)
+                    }
+                  />
+                </div>
               </div>
+
+              {extras.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-slate-400">Extra Erased Colors:</span>
+                  {extras.map((hex, i) => (
+                    <span
+                      key={`${hex}_${i}`}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#14171d] border border-white/15 text-[11px] font-mono text-slate-200"
+                    >
+                      <span
+                        className="w-3 h-3 rounded-sm border border-white/25"
+                        style={{ backgroundColor: hex }}
+                      />
+                      <span>{hex.toUpperCase()}</span>
+                      <button
+                        onClick={() =>
+                          updateLayer(
+                            selected.id,
+                            {
+                              eraseColor: {
+                                ...ec,
+                                extraColors: extras.filter((_, idx) => idx !== i),
+                              },
+                            },
+                            true
+                          )
+                        }
+                        className="text-slate-400 hover:text-rose-400 cursor-pointer"
+                        title="Remove color"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {ec.enabled && (
                 <>
                   <ColorPickerRow
-                    label="Target Color"
+                    label="Primary Target Color"
                     color={ec.color}
                     onChange={(color) => updateLayer(selected.id, { eraseColor: { ...ec, color } })}
                   />

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BottomDock } from './components/BottomDock';
 import { CanvasViewport } from './components/CanvasViewport';
+import { IsolatedEraseHeader } from './components/IsolatedEraseHeader';
 import { LayersDrawer } from './components/LayersDrawer';
 import { CropModal } from './components/modals/CropModal';
 import { ExportModal } from './components/modals/ExportModal';
@@ -9,10 +10,11 @@ import { ProjectManagerModal } from './components/modals/ProjectManagerModal';
 import { QuotesModal } from './components/modals/QuotesModal';
 import { TextEditModal } from './components/modals/TextEditModal';
 import { TopToolbar } from './components/TopToolbar';
-import { useEditorStore } from './store/useEditorStore';
+import { isIsolatedEraseActive, useEditorStore } from './store/useEditorStore';
 
 export default function App() {
-  const { initWorkspace, toastMessage } = useEditorStore();
+  const { initWorkspace, toastMessage, activeTool, selectedIds, document: doc } = useEditorStore();
+  const isolatedErase = isIsolatedEraseActive(activeTool, selectedIds, doc.layers);
 
   useEffect(() => {
     initWorkspace();
@@ -20,13 +22,13 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#14161b] text-slate-100 overflow-hidden">
-      {/* Compact PixelLab Top Toolbar */}
-      <TopToolbar />
+      {/* Compact PixelLab Top Toolbar or Dedicated Isolated Erase Header */}
+      {isolatedErase ? <IsolatedEraseHeader /> : <TopToolbar />}
 
       {/* Central Canvas + Slide-Over Layers Drawer */}
       <main className="relative flex-1 flex overflow-hidden">
         <CanvasViewport />
-        <LayersDrawer />
+        {!isolatedErase && <LayersDrawer />}
       </main>
 
       {/* Expandable Tool Tray + Context Ribbon + 5-Tab Bottom Bar */}

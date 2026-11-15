@@ -16,6 +16,7 @@ import {
   DrawingLayer,
   DrawingStroke,
   EditorInteractionMode,
+  EraserStroke,
   ImageLayer,
   LayerObject,
   PathLayer,
@@ -63,6 +64,13 @@ interface DrawSessionState {
   undoneStrokes: DrawingStroke[];
 }
 
+export interface EraserSessionState {
+  brushSize: number;
+  softness: number;
+  opacity: number;
+  mode: 'erase' | 'restore';
+}
+
 interface BezierSessionState {
   editingLayerId: string | null;
   anchors: BezierAnchor[];
@@ -93,6 +101,8 @@ interface EditorState {
   activeModal: ModalType;
   pendingImportImages: PendingImportImage[];
   drawSession: DrawSessionState;
+  eraserSession: EraserSessionState;
+  eraserUndoneMap: Record<string, EraserStroke[]>;
   bezierSession: BezierSessionState;
   savedStyles: StylePreset[];
   customFonts: CustomFontAsset[];
@@ -112,6 +122,7 @@ interface EditorState {
   // Navigation & Viewport
   setActiveTab: (tab: BottomTab) => void;
   setActiveTool: (tool: string | null) => void;
+  exitErasePage: () => void;
   setInteractionMode: (mode: EditorInteractionMode, eyedropperCb?: (hex: string) => void) => void;
   setLayersDrawerOpen: (open: boolean) => void;
   setZoom: (zoom: number) => void;
@@ -145,7 +156,13 @@ interface EditorState {
   addTextLayer: (text?: string) => string;
   addShapeLayer: (kind: ShapeKind) => string;
   addStickerLayer: (kind: 'emoji' | 'svg' | 'custom', content: string, label?: string) => string;
-  addImageLayer: (src: string, w: number, h: number, name?: string) => string;
+  addImageLayer: (
+    src: string,
+    w: number,
+    h: number,
+    name?: string,
+    position?: { x: number; y: number }
+  ) => string;
 
   // Layer updates & actions
   updateLayer: (id: string, patch: Partial<LayerObject>, recordHistory?: boolean) => void;
@@ -181,6 +198,13 @@ interface EditorState {
   commitDrawSession: () => void;
   cancelDrawSession: () => void;
 
+  // Pixel Eraser Mode
+  updateEraserSession: (patch: Partial<EraserSessionState>) => void;
+  undoEraserStroke: (layerId: string) => void;
+  redoEraserStroke: (layerId: string) => void;
+  clearEraserStrokes: (layerId: string) => void;
+  clearEraserUndoneForLayer: (layerId: string) => void;
+
   // Bezier Mode
   startBezierMode: (existingLayerId?: string | null) => void;
   updateBezierSession: (patch: Partial<BezierSessionState>) => void;
@@ -200,7 +224,25 @@ interface EditorState {
 const MAX_HISTORY = 40;
 
 function cloneDoc(doc: CanvasDocument): CanvasDocument {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(doc);
+  }
   return JSON.parse(JSON.stringify(doc)) as CanvasDocument;
+}
+
+export function isIsolatedEraseActive(
+  activeTool: string | null,
+  selectedIds: string[],
+  layers: LayerObject[]
+): boolean {
+  if (activeTool !== 'pixelEraser' && activeTool !== 'eraseColor') return false;
+  if (selectedIds.length !== 1) return false;
+  const layer = layers.find((l) => l.id === selectedIds[0]);
+  if (!layer) return false;
+  if (activeTool === 'eraseColor') {
+    return layer.type === 'image' || layer.type === 'sticker';
+  }
+  return layer.type === 'image' || layer.type === 'sticker' || layer.type === 'drawing';
 }
 
 function uid(prefix = 'layer'): string {
@@ -234,6 +276,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     strokes: [],
     undoneStrokes: [],
   },
+  eraserSession: {
+    brushSize: 32,
+    softness: 0,
+    opacity: 1,
+    mode: 'erase',
+  },
+  eraserUndoneMap: {},
   bezierSession: {
     editingLayerId: null,
     anchors: [],
@@ -279,18 +328,43 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }, 2600);
   },
 
-  setActiveTab: (tab) => set({ activeTab: tab, activeTool: null }),
-  setActiveTool: (tool) =>
+  setActiveTab: (tab) =>
     set((s) => ({
-      activeTool: s.activeTool === tool ? null : tool,
+      activeTab: tab,
+      activeTool: null,
       interactionMode:
-        tool === 'perspective'
-          ? 'perspective'
-          : tool === 'mask'
-          ? 'mask'
-          : s.interactionMode === 'perspective' || s.interactionMode === 'mask'
+        s.interactionMode === 'perspective' ||
+        s.interactionMode === 'mask' ||
+        s.interactionMode === 'erase'
           ? 'select'
           : s.interactionMode,
+    })),
+  setActiveTool: (tool) =>
+    set((s) => {
+      const nextTool = s.activeTool === tool ? null : tool;
+      return {
+        activeTool: nextTool,
+        interactionMode:
+          nextTool === 'perspective'
+            ? 'perspective'
+            : nextTool === 'mask'
+            ? 'mask'
+            : nextTool === 'pixelEraser'
+            ? 'erase'
+            : s.interactionMode === 'perspective' ||
+              s.interactionMode === 'mask' ||
+              s.interactionMode === 'erase'
+            ? 'select'
+            : s.interactionMode,
+      };
+    }),
+
+  exitErasePage: () =>
+    set((s) => ({
+      activeTool:
+        s.activeTool === 'pixelEraser' || s.activeTool === 'eraseColor' ? null : s.activeTool,
+      interactionMode: 'select',
+      eyedropperCallback: null,
     })),
 
   setInteractionMode: (mode, eyedropperCb) =>
@@ -572,7 +646,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return id;
   },
 
-  addImageLayer: (src, w, h, name = 'Imported Image') => {
+  addImageLayer: (src, w, h, name = 'Imported Image', position) => {
     get().pushHistory();
     const { width: cw, height: ch } = get().document;
     const maxDim = Math.min(cw, ch) * 0.65;
@@ -580,8 +654,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const id = uid('img');
     const layer: ImageLayer = {
       ...createBaseLayerDefaults({
-        x: cw / 2,
-        y: ch / 2,
+        x: position ? Math.round(position.x) : cw / 2,
+        y: position ? Math.round(position.y) : ch / 2,
         width: Math.max(60, Math.round(w * ratio)),
         height: Math.max(60, Math.round(h * ratio)),
       }),
@@ -814,13 +888,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     for (const l of targets) {
       if (!l.visible) continue;
-      const res = renderFullLayerToCanvas(l);
+      const res = renderFullLayerToCanvas(l, undefined, 2);
       fctx.save();
       fctx.globalAlpha = l.opacity;
       fctx.translate(l.x, l.y);
       fctx.rotate((l.rotation * Math.PI) / 180);
       fctx.scale(l.scaleX, l.scaleY);
-      fctx.drawImage(res.canvas, -(res.offsetX + res.coreWidth / 2), -(res.offsetY + res.coreHeight / 2));
+      fctx.drawImage(
+        res.canvas,
+        -(res.offsetX + res.coreWidth / 2),
+        -(res.offsetY + res.coreHeight / 2),
+        res.logicalWidth,
+        res.logicalHeight
+      );
       fctx.restore();
     }
 
@@ -1047,6 +1127,79 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         },
       };
     }),
+
+  updateEraserSession: (patch) =>
+    set((s) => ({ eraserSession: { ...s.eraserSession, ...patch } })),
+
+  clearEraserUndoneForLayer: (layerId) =>
+    set((s) => {
+      if (!s.eraserUndoneMap[layerId]?.length) return s;
+      const copy = { ...s.eraserUndoneMap };
+      delete copy[layerId];
+      return { eraserUndoneMap: copy };
+    }),
+
+  undoEraserStroke: (layerId) => {
+    const layer = get().document.layers.find((l) => l.id === layerId);
+    const strokes = layer?.eraserStrokes ?? [];
+    if (!strokes.length) return;
+    const last = strokes[strokes.length - 1];
+    get().pushHistory();
+    set((s) => ({
+      document: {
+        ...s.document,
+        layers: s.document.layers.map((l) =>
+          l.id === layerId ? { ...l, eraserStrokes: strokes.slice(0, -1) } : l
+        ),
+        updatedAt: Date.now(),
+      },
+      eraserUndoneMap: {
+        ...s.eraserUndoneMap,
+        [layerId]: [last, ...(s.eraserUndoneMap[layerId] ?? [])],
+      },
+    }));
+  },
+
+  redoEraserStroke: (layerId) => {
+    const undone = get().eraserUndoneMap[layerId] ?? [];
+    if (!undone.length) return;
+    const next = undone[0];
+    get().pushHistory();
+    set((s) => ({
+      document: {
+        ...s.document,
+        layers: s.document.layers.map((l) =>
+          l.id === layerId ? { ...l, eraserStrokes: [...(l.eraserStrokes ?? []), next] } : l
+        ),
+        updatedAt: Date.now(),
+      },
+      eraserUndoneMap: {
+        ...s.eraserUndoneMap,
+        [layerId]: undone.slice(1),
+      },
+    }));
+  },
+
+  clearEraserStrokes: (layerId) => {
+    const layer = get().document.layers.find((l) => l.id === layerId);
+    if (!layer?.eraserStrokes?.length) return;
+    get().pushHistory();
+    set((s) => {
+      const copy = { ...s.eraserUndoneMap };
+      delete copy[layerId];
+      return {
+        document: {
+          ...s.document,
+          layers: s.document.layers.map((l) =>
+            l.id === layerId ? { ...l, eraserStrokes: [] } : l
+          ),
+          updatedAt: Date.now(),
+        },
+        eraserUndoneMap: copy,
+      };
+    });
+    get().showToast('Restored all erased pixels');
+  },
 
   commitDrawSession: () => {
     const { drawSession, document } = get();

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Calendar,
+  ClipboardPaste,
   Download,
   FilePlus2,
   FolderOpen,
@@ -26,6 +27,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useEditorStore } from '../store/useEditorStore';
+import { readImagesFromAsyncClipboard } from '../utils/clipboardDrop';
 import { deserializePfx, serializePfx } from '../utils/projectStorage';
 import { saveTextFileNative, toggleDesktopFullscreen } from '../utils/tauriBridge';
 
@@ -127,6 +129,41 @@ export const TopToolbar: React.FC = () => {
     setIsFullscreen(!isFullscreen);
   };
 
+  const handlePasteFromClipboard = async () => {
+    closeMenu();
+    const state = useEditorStore.getState();
+    const { images, text } = await readImagesFromAsyncClipboard();
+    if (images.length > 0) {
+      const { width, height } = state.document;
+      images.forEach((img, idx) => {
+        const pos =
+          idx > 0
+            ? {
+                x: Math.round(width / 2 + idx * 24),
+                y: Math.round(height / 2 + idx * 24),
+              }
+            : undefined;
+        state.addImageLayer(img.src, img.width, img.height, img.name, pos);
+      });
+      showToast(
+        images.length === 1
+          ? `Pasted "${images[0].name}" (${images[0].width}×${images[0].height})`
+          : `Pasted ${images.length} images`
+      );
+      return;
+    }
+    if (state.clipboard.length > 0) {
+      state.pasteClipboard();
+      return;
+    }
+    if (text && text.trim()) {
+      state.addTextLayer(text.trim().slice(0, 500));
+      showToast('Pasted text as new layer');
+      return;
+    }
+    showToast('Press Ctrl+V on the canvas to paste an image');
+  };
+
   return (
     <header className="relative z-30 h-12 bg-[#1c1f26] border-b border-white/10 px-3 flex items-center justify-between gap-3 shrink-0">
       {/* Hidden file inputs */}
@@ -210,6 +247,11 @@ export const TopToolbar: React.FC = () => {
                   closeMenu();
                   imageInputRef.current?.click();
                 }}
+              />
+              <MenuBtn
+                icon={<ClipboardPaste className="w-4 h-4 text-teal-400" />}
+                label="Paste Image (Ctrl+V)"
+                onClick={handlePasteFromClipboard}
               />
               <MenuBtn
                 icon={<Pencil className="w-4 h-4 text-rose-400" />}

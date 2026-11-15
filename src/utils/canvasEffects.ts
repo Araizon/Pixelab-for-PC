@@ -16,7 +16,15 @@ const pendingImageLoads = new Map<string, Promise<HTMLImageElement | null>>();
 const loadedFontsSet = new Set<string>();
 const pendingFontLoads = new Map<string, Promise<void>>();
 const layerRenderCache = new Map<string, RenderedLayerResult>();
-const MAX_LAYER_CACHE = 80;
+const MAX_LAYER_CACHE = 120;
+const MAX_RENDER_PIXEL_DIM = 2400;
+
+export function quantizeRenderScale(rawScale: number, logicalW: number, logicalH: number): number {
+  const s = Math.max(1, rawScale);
+  const stepped = s <= 1.15 ? 1 : s <= 1.65 ? 1.5 : s <= 2.3 ? 2 : s <= 3.15 ? 3 : 4;
+  const maxSafe = Math.max(1, MAX_RENDER_PIXEL_DIM / Math.max(1, logicalW, logicalH));
+  return Math.max(1, Number(Math.min(stepped, maxSafe).toFixed(2)));
+}
 
 let sharedMeasureCanvas: HTMLCanvasElement | null = null;
 function getMeasureCtx(): CanvasRenderingContext2D {
@@ -351,7 +359,8 @@ function drawCurvedText(
 
 function renderCoreObjectCanvas(
   layer: LayerObject,
-  onAssetLoad?: () => void
+  onAssetLoad?: () => void,
+  renderScale = 1
 ): { canvas: HTMLCanvasElement; w: number; h: number } {
   const off = document.createElement('canvas');
   const ctx = off.getContext('2d')!;
@@ -361,8 +370,11 @@ function renderCoreObjectCanvas(
     const layout = measureTextLayout(layer);
     const w = Math.max(60, layout.boxW);
     const h = Math.max(40, layout.boxH);
-    off.width = w;
-    off.height = h;
+    off.width = Math.max(1, Math.round(w * renderScale));
+    off.height = Math.max(1, Math.round(h * renderScale));
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(renderScale, renderScale);
 
     // Text background box (expands tightly around text + background padding)
     if (layer.textBg.enabled) {
@@ -450,9 +462,12 @@ function renderCoreObjectCanvas(
     if (has3DRot) {
       // Render un-extruded front face & silhouette, rotate in 3D, then stamp volumetric depth
       const frontCanvas = document.createElement('canvas');
-      frontCanvas.width = w;
-      frontCanvas.height = h;
+      frontCanvas.width = Math.max(1, Math.round(w * renderScale));
+      frontCanvas.height = Math.max(1, Math.round(h * renderScale));
       const frCtx = frontCanvas.getContext('2d')!;
+      frCtx.imageSmoothingEnabled = true;
+      frCtx.imageSmoothingQuality = 'high';
+      frCtx.scale(renderScale, renderScale);
       frCtx.font = fontStr;
       frCtx.textBaseline = 'alphabetic';
       frCtx.lineJoin = 'round';
@@ -506,9 +521,12 @@ function renderCoreObjectCanvas(
           : darkenHexColor(layer.fill.color, t3d.darken);
 
       const silCanvas = document.createElement('canvas');
-      silCanvas.width = w;
-      silCanvas.height = h;
+      silCanvas.width = frontCanvas.width;
+      silCanvas.height = frontCanvas.height;
       const silCtx = silCanvas.getContext('2d')!;
+      silCtx.imageSmoothingEnabled = true;
+      silCtx.imageSmoothingQuality = 'high';
+      silCtx.scale(renderScale, renderScale);
       silCtx.font = fontStr;
       silCtx.textBaseline = 'alphabetic';
       silCtx.lineJoin = 'round';
@@ -521,8 +539,8 @@ function renderCoreObjectCanvas(
       const rotFront = apply3DEulerTilt(frontCanvas, rx, ry, rz);
       const rotSil = apply3DEulerTilt(silCanvas, rx, ry, rz);
 
-      const rw = rotFront.width;
-      const rh = rotFront.height;
+      const rw = rotFront.width / renderScale;
+      const rh = rotFront.height / renderScale;
       const steps = Math.min(48, Math.max(1, Math.round(t3d.depth)));
       const rad = (t3d.angle * Math.PI) / 180;
       const obDx = t3d.mode === 'oblique' ? Math.cos(rad) * 0.9 : 0;
@@ -533,9 +551,12 @@ function renderCoreObjectCanvas(
       const pad = Math.ceil(steps * 1.5 + Math.max(rw - w, rh - h) / 2 + 12);
       const outW = w + pad * 2;
       const outH = h + pad * 2;
-      off.width = outW;
-      off.height = outH;
+      off.width = Math.max(1, Math.round(outW * renderScale));
+      off.height = Math.max(1, Math.round(outH * renderScale));
       const octx = off.getContext('2d')!;
+      octx.imageSmoothingEnabled = true;
+      octx.imageSmoothingQuality = 'high';
+      octx.scale(renderScale, renderScale);
       // Re-draw text background centered if enabled
       if (layer.textBg.enabled) {
         const boxLeft = pad + Math.max(0, layout.padL - layer.textBg.paddingLeft);
@@ -557,10 +578,10 @@ function renderCoreObjectCanvas(
         octx.translate(cx + stepDx * s, cy + stepDy * s);
         octx.scale(scale, scale);
         octx.globalAlpha = Math.max(0.25, 1 - (s / steps) * (t3d.darken / 160));
-        octx.drawImage(rotSil, -rw / 2, -rh / 2);
+        octx.drawImage(rotSil, -rw / 2, -rh / 2, rw, rh);
         octx.restore();
       }
-      octx.drawImage(rotFront, cx - rw / 2, cy - rh / 2);
+      octx.drawImage(rotFront, cx - rw / 2, cy - rh / 2, rw, rh);
       return { canvas: off, w: outW, h: outH };
     }
 
@@ -572,8 +593,11 @@ function renderCoreObjectCanvas(
   if (layer.type === 'shape') {
     const w = Math.max(20, Math.round(layer.width));
     const h = Math.max(20, Math.round(layer.height));
-    off.width = w;
-    off.height = h;
+    off.width = Math.max(1, Math.round(w * renderScale));
+    off.height = Math.max(1, Math.round(h * renderScale));
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(renderScale, renderScale);
     const pad = layer.stroke.enabled ? layer.stroke.width + 2 : 4;
     const iw = Math.max(8, w - pad * 2);
     const ih = Math.max(8, h - pad * 2);
@@ -605,8 +629,11 @@ function renderCoreObjectCanvas(
   if (layer.type === 'image') {
     const w = Math.max(20, Math.round(layer.width));
     const h = Math.max(20, Math.round(layer.height));
-    off.width = w;
-    off.height = h;
+    off.width = Math.max(1, Math.round(w * renderScale));
+    off.height = Math.max(1, Math.round(h * renderScale));
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(renderScale, renderScale);
     const img = getCachedImage(layer.src, onAssetLoad);
     if (img) {
       ctx.drawImage(img, 0, 0, w, h);
@@ -633,8 +660,11 @@ function renderCoreObjectCanvas(
   if (layer.type === 'sticker') {
     const w = Math.max(20, Math.round(layer.width));
     const h = Math.max(20, Math.round(layer.height));
-    off.width = w;
-    off.height = h;
+    off.width = Math.max(1, Math.round(w * renderScale));
+    off.height = Math.max(1, Math.round(h * renderScale));
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(renderScale, renderScale);
     if (layer.kind === 'emoji') {
       const size = Math.min(w, h) * 0.78;
       ctx.font = `${size}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
@@ -667,8 +697,11 @@ function renderCoreObjectCanvas(
   if (layer.type === 'drawing') {
     const w = Math.max(40, Math.round(layer.width));
     const h = Math.max(40, Math.round(layer.height));
-    off.width = w;
-    off.height = h;
+    off.width = Math.max(1, Math.round(w * renderScale));
+    off.height = Math.max(1, Math.round(h * renderScale));
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(renderScale, renderScale);
     for (const s of layer.strokes) {
       if (s.points.length < 2) continue;
       ctx.save();
@@ -692,8 +725,11 @@ function renderCoreObjectCanvas(
   const pathLayer = layer as PathLayer;
   const w = Math.max(40, Math.round(pathLayer.width));
   const h = Math.max(40, Math.round(pathLayer.height));
-  off.width = w;
-  off.height = h;
+  off.width = Math.max(1, Math.round(w * renderScale));
+  off.height = Math.max(1, Math.round(h * renderScale));
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.scale(renderScale, renderScale);
   if (pathLayer.anchors.length >= 2) {
     buildBezierPath(ctx, pathLayer.anchors, pathLayer.closed);
     if (pathLayer.closed) {
@@ -841,7 +877,11 @@ function buildShapePath(
   }
 }
 
-function applyInnerShadow(srcCanvas: HTMLCanvasElement, layer: LayerObject): HTMLCanvasElement {
+function applyInnerShadow(
+  srcCanvas: HTMLCanvasElement,
+  layer: LayerObject,
+  renderScale = 1
+): HTMLCanvasElement {
   const { innerShadow } = layer;
   if (!innerShadow.enabled) return srcCanvas;
   const w = srcCanvas.width;
@@ -866,9 +906,9 @@ function applyInnerShadow(srcCanvas: HTMLCanvasElement, layer: LayerObject): HTM
   shadowLayer.height = h;
   const sctx = shadowLayer.getContext('2d')!;
   sctx.shadowColor = innerShadow.color;
-  sctx.shadowBlur = innerShadow.blur;
-  sctx.shadowOffsetX = innerShadow.offsetX;
-  sctx.shadowOffsetY = innerShadow.offsetY;
+  sctx.shadowBlur = innerShadow.blur * renderScale;
+  sctx.shadowOffsetX = innerShadow.offsetX * renderScale;
+  sctx.shadowOffsetY = innerShadow.offsetY * renderScale;
   sctx.drawImage(inv, 0, 0);
 
   ctx.save();
@@ -878,7 +918,11 @@ function applyInnerShadow(srcCanvas: HTMLCanvasElement, layer: LayerObject): HTM
   return out;
 }
 
-function applyEmboss(srcCanvas: HTMLCanvasElement, emboss: EmbossConfig): HTMLCanvasElement {
+function applyEmboss(
+  srcCanvas: HTMLCanvasElement,
+  emboss: EmbossConfig,
+  renderScale = 1
+): HTMLCanvasElement {
   if (!emboss.enabled) return srcCanvas;
   const w = srcCanvas.width;
   const h = srcCanvas.height;
@@ -895,7 +939,7 @@ function applyEmboss(srcCanvas: HTMLCanvasElement, emboss: EmbossConfig): HTMLCa
   const lx = Math.cos(rad);
   const ly = Math.sin(rad);
   const strength = (emboss.intensity / 100) * 1.4;
-  const step = Math.max(1, Math.min(6, Math.round(emboss.bevel)));
+  const step = Math.max(1, Math.min(18, Math.round(emboss.bevel * renderScale)));
   const ambientFactor = 0.65 + (emboss.ambient / 100) * 0.45;
   const specPower = (emboss.specular / 100) * 90;
 
@@ -1076,26 +1120,109 @@ function applyEraseColor(srcCanvas: HTMLCanvasElement, layer: LayerObject): HTML
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
-  const [tr, tg, tb] = hexToRgbTuple(ec.color);
-  // Euclidean RGB distance threshold (max distance in RGB cube is ~441.67)
+  const targets = [ec.color, ...(ec.extraColors ?? [])].map(hexToRgbTuple);
+  const targetLen = targets.length;
+
+  // Use squared distance comparisons to avoid Math.sqrt on 90%+ of pixels
   const threshold = (ec.tolerance / 100) * 260;
   const feather = Math.max(1, (ec.smooth / 100) * 110);
+  const threshSq = threshold * threshold;
+  const maxDist = threshold + feather;
+  const maxSq = maxDist * maxDist;
 
   for (let i = 0; i < d.length; i += 4) {
     const a = d[i + 3];
     if (a === 0) continue;
-    const dr = d[i] - tr;
-    const dg = d[i + 1] - tg;
-    const db = d[i + 2] - tb;
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-    if (dist <= threshold) {
+    const pr = d[i];
+    const pg = d[i + 1];
+    const pb = d[i + 2];
+
+    let minDistSq = Infinity;
+    for (let t = 0; t < targetLen; t++) {
+      const [tr, tg, tb] = targets[t];
+      const dr = pr - tr;
+      const dg = pg - tg;
+      const db = pb - tb;
+      const distSq = dr * dr + dg * dg + db * db;
+      if (distSq < minDistSq) minDistSq = distSq;
+    }
+
+    if (minDistSq <= threshSq) {
       d[i + 3] = 0;
-    } else if (dist < threshold + feather) {
+    } else if (minDistSq < maxSq) {
+      const dist = Math.sqrt(minDistSq);
       const t = (dist - threshold) / feather;
       d[i + 3] = Math.round(a * t);
     }
   }
   ctx.putImageData(imgData, 0, 0);
+  return out;
+}
+
+function applyEraserStrokes(
+  srcCanvas: HTMLCanvasElement,
+  layer: LayerObject,
+  renderScale = 1
+): HTMLCanvasElement {
+  const strokes = layer.eraserStrokes;
+  if (!strokes || strokes.length === 0) return srcCanvas;
+
+  const w = srcCanvas.width;
+  const h = srcCanvas.height;
+
+  // Build an opaque mask canvas; 'erase' strokes punch holes via destination-out,
+  // while 'restore' strokes paint alpha back via source-over.
+  const mask = document.createElement('canvas');
+  mask.width = w;
+  mask.height = h;
+  const mctx = mask.getContext('2d')!;
+  mctx.fillStyle = '#000000';
+  mctx.fillRect(0, 0, w, h);
+
+  for (const stroke of strokes) {
+    if (!stroke.points || stroke.points.length < 2) continue;
+    const opacity = Math.min(1, Math.max(0.05, stroke.opacity ?? 1));
+    const diameter = Math.max(1, stroke.size * renderScale);
+
+    mctx.save();
+    mctx.globalCompositeOperation = stroke.mode === 'restore' ? 'source-over' : 'destination-out';
+    mctx.lineCap = 'round';
+    mctx.lineJoin = 'round';
+    mctx.lineWidth = diameter;
+    mctx.strokeStyle = `rgba(0,0,0,${opacity})`;
+    mctx.fillStyle = `rgba(0,0,0,${opacity})`;
+
+    if (stroke.softness > 0) {
+      const blurPx = (stroke.softness / 100) * (diameter * 0.45);
+      if (blurPx >= 0.4) {
+        mctx.filter = `blur(${blurPx.toFixed(1)}px)`;
+      }
+    }
+
+    if (stroke.points.length === 2) {
+      mctx.beginPath();
+      mctx.arc(stroke.points[0] * w, stroke.points[1] * h, Math.max(0.5, diameter / 2), 0, Math.PI * 2);
+      mctx.fill();
+    } else {
+      mctx.beginPath();
+      mctx.moveTo(stroke.points[0] * w, stroke.points[1] * h);
+      for (let i = 2; i < stroke.points.length; i += 2) {
+        mctx.lineTo(stroke.points[i] * w, stroke.points[i + 1] * h);
+      }
+      mctx.stroke();
+    }
+    mctx.restore();
+  }
+
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext('2d')!;
+  octx.drawImage(srcCanvas, 0, 0);
+  octx.save();
+  octx.globalCompositeOperation = 'destination-in';
+  octx.drawImage(mask, 0, 0);
+  octx.restore();
   return out;
 }
 
@@ -1212,15 +1339,22 @@ export interface RenderedLayerResult {
   canvas: HTMLCanvasElement;
   coreWidth: number;
   coreHeight: number;
+  logicalWidth: number;
+  logicalHeight: number;
   offsetX: number;
   offsetY: number;
+  renderScale: number;
 }
 
 export function renderFullLayerToCanvas(
   layer: LayerObject,
-  onAssetLoad?: () => void
+  onAssetLoad?: () => void,
+  desiredScale = 1
 ): RenderedLayerResult {
-  const cacheKey = getLayerVisualCacheKey(layer);
+  const coreBox = getLayerCoreBox(layer);
+  const renderScale = quantizeRenderScale(desiredScale, coreBox.w, coreBox.h);
+  const baseKey = getLayerVisualCacheKey(layer);
+  const cacheKey = `${baseKey}__rs${renderScale}`;
   const cached = layerRenderCache.get(cacheKey);
   if (cached) {
     // Refresh LRU order
@@ -1234,12 +1368,13 @@ export function renderFullLayerToCanvas(
     onAssetLoad?.();
   };
 
-  const { canvas: core, w, h } = renderCoreObjectCanvas(layer, trackPendingLoad);
+  const { canvas: core, w, h } = renderCoreObjectCanvas(layer, trackPendingLoad, renderScale);
 
   let processed = applyEraseColor(core, layer);
+  processed = applyEraserStrokes(processed, layer, renderScale);
   processed = applyObjectColorFilters(processed, layer);
-  processed = applyInnerShadow(processed, layer);
-  processed = applyEmboss(processed, layer.emboss);
+  processed = applyInnerShadow(processed, layer, renderScale);
+  processed = applyEmboss(processed, layer.emboss, renderScale);
 
   if (layer.mask.enabled && layer.mask.points.length >= 3) {
     const masked = document.createElement('canvas');
@@ -1252,7 +1387,7 @@ export function renderFullLayerToCanvas(
     stencil.width = processed.width;
     stencil.height = processed.height;
     const stCtx = stencil.getContext('2d')!;
-    const smooth = layer.mask.smooth ?? 0;
+    const smooth = (layer.mask.smooth ?? 0) * renderScale;
     if (smooth > 0) {
       stCtx.filter = `blur(${smooth}px)`;
     }
@@ -1277,8 +1412,8 @@ export function renderFullLayerToCanvas(
   const beforeWarpW = processed.width;
   const beforeWarpH = processed.height;
   processed = applyPerspectiveAnd3DRotate(processed, layer.perspective, layer.rotate3D);
-  const warpPadX = (processed.width - beforeWarpW) / 2;
-  const warpPadY = (processed.height - beforeWarpH) / 2;
+  const warpPadX = (processed.width - beforeWarpW) / (2 * renderScale);
+  const warpPadY = (processed.height - beforeWarpH) / (2 * renderScale);
 
   if (layer.flipX || layer.flipY) {
     const flipped = document.createElement('canvas');
@@ -1291,6 +1426,9 @@ export function renderFullLayerToCanvas(
     processed = flipped;
   }
 
+  const procLogicalW = processed.width / renderScale;
+  const procLogicalH = processed.height / renderScale;
+
   const shadowMargin = layer.shadow.enabled
     ? layer.shadow.blur * 2 + Math.max(Math.abs(layer.shadow.offsetX), Math.abs(layer.shadow.offsetY)) + 16
     : 8;
@@ -1298,12 +1436,15 @@ export function renderFullLayerToCanvas(
     (layer.reflection.enabled ? h * 0.75 + layer.reflection.offsetY : 0) +
     (layer.shadow3D.enabled ? layer.shadow3D.offsetY + layer.shadow3D.blur * 2 + 20 : 0);
 
-  const finalW = Math.ceil(processed.width + shadowMargin * 2);
-  const finalH = Math.ceil(processed.height + shadowMargin * 2 + extraBottom);
+  const finalW = Math.ceil(procLogicalW + shadowMargin * 2);
+  const finalH = Math.ceil(procLogicalH + shadowMargin * 2 + extraBottom);
   const finalCanvas = document.createElement('canvas');
-  finalCanvas.width = finalW;
-  finalCanvas.height = finalH;
+  finalCanvas.width = Math.max(1, Math.round(finalW * renderScale));
+  finalCanvas.height = Math.max(1, Math.round(finalH * renderScale));
   const fctx = finalCanvas.getContext('2d')!;
+  fctx.imageSmoothingEnabled = true;
+  fctx.imageSmoothingQuality = 'high';
+  fctx.scale(renderScale, renderScale);
 
   const drawX = shadowMargin;
   const drawY = shadowMargin;
@@ -1317,8 +1458,8 @@ export function renderFullLayerToCanvas(
     const ry = Math.max(8, h * 0.1 + layer.shadow3D.expand * 0.25);
     fctx.beginPath();
     fctx.ellipse(
-      drawX + processed.width / 2,
-      drawY + processed.height - warpPadY + layer.shadow3D.offsetY,
+      drawX + procLogicalW / 2,
+      drawY + procLogicalH - warpPadY + layer.shadow3D.offsetY,
       rx,
       ry,
       0,
@@ -1330,7 +1471,7 @@ export function renderFullLayerToCanvas(
   }
 
   if (layer.reflection.enabled) {
-    const reflH = Math.round(processed.height * 0.7);
+    const reflH = Math.max(1, Math.round(processed.height * 0.7));
     const reflCanvas = document.createElement('canvas');
     reflCanvas.width = processed.width;
     reflCanvas.height = reflH;
@@ -1347,25 +1488,35 @@ export function renderFullLayerToCanvas(
     rctx.fillStyle = fadeGrad;
     rctx.fillRect(0, 0, processed.width, reflH);
 
-    fctx.drawImage(reflCanvas, drawX, drawY + processed.height - warpPadY * 2 + layer.reflection.offsetY);
+    fctx.drawImage(
+      reflCanvas,
+      drawX,
+      drawY + procLogicalH - warpPadY * 2 + layer.reflection.offsetY,
+      procLogicalW,
+      reflH / renderScale
+    );
   }
 
   fctx.save();
   if (layer.shadow.enabled) {
+    // Canvas2D shadow metrics are always in unscaled backing pixels
     fctx.shadowColor = hexToRgba(layer.shadow.color, layer.shadow.opacity);
-    fctx.shadowBlur = layer.shadow.blur;
-    fctx.shadowOffsetX = layer.shadow.offsetX;
-    fctx.shadowOffsetY = layer.shadow.offsetY;
+    fctx.shadowBlur = layer.shadow.blur * renderScale;
+    fctx.shadowOffsetX = layer.shadow.offsetX * renderScale;
+    fctx.shadowOffsetY = layer.shadow.offsetY * renderScale;
   }
-  fctx.drawImage(processed, drawX, drawY);
+  fctx.drawImage(processed, drawX, drawY, procLogicalW, procLogicalH);
   fctx.restore();
 
   const result: RenderedLayerResult = {
     canvas: finalCanvas,
     coreWidth: w,
     coreHeight: h,
+    logicalWidth: finalW,
+    logicalHeight: finalH,
     offsetX: drawX + warpPadX,
     offsetY: drawY + warpPadY,
+    renderScale,
   };
 
   if (layerRenderCache.size >= MAX_LAYER_CACHE) {
